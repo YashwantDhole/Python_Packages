@@ -1,52 +1,65 @@
-Here’s the updated email with the requested changes:
+import re
 
----
+def extract_spark_queries(script_text):
+    """
+    Extracts all spark.sql queries from the PySpark script while ignoring other operations.
+    """
+    pattern = r'spark\.sql"""(.*?)"""'  # Captures multi-line SQL queries
+    matches = re.findall(pattern, script_text, re.DOTALL)
+    return matches
 
-**Subject**: Handover of Tasks and Plan for Issuer Processor Pipeline
+def extract_temp_views(script_text):
+    """
+    Extracts temp views and their corresponding SQL queries.
+    """
+    pattern = r'spark\.sql"""(.*?)"""\s*\.createOrReplaceTempView"(\w+)"'
+    matches = re.findall(pattern, script_text, re.DOTALL)
+    return {view: sql for sql, view in matches}
 
-Dear [Recipient's Name],
+def transform_query_to_count(query):
+    """
+    Converts a query into a COUNT(*) version.
+    """
+    query = query.strip().split("FROM", 1)  # Extract FROM clause
+    if len(query) > 1:
+        return f"SELECT COUNT(*) FROM {query[1]}"
+    return query[0]  # If no FROM, return as is
 
-As I am preparing to transition from my role, I would like to provide a comprehensive handover for the tasks under my responsibility.
+def replace_views_with_queries(final_query, temp_view_queries):
+    """
+    Replaces temp view names with their respective transformed COUNT(*) queries.
+    """
+    for view, query in temp_view_queries.items():
+        count_query = transform_query_to_count(query)
+        final_query = re.sub(rf'\b{view}\b', f"({count_query})", final_query, flags=re.IGNORECASE)
+    return transform_query_to_count(final_query)  # Convert final query to COUNT(*)
 
-1. **Merchant Analytics Dashboard (MAD) Flow**:  
-   I have already conducted a detailed knowledge transfer (KT) session with Jayant from PalmTwistTree for the MAD flow. This KT included a complete explanation of the code, how it works, how to run it, and common issues that might arise. As such, there is no need to revisit this task, as it has been fully handed over.
+def find_final_query(queries, temp_views):
+    """
+    Identifies the final query that loads data by finding the last spark.sql()
+    that is NOT creating a temp view.
+    """
+    for query in reversed(queries):  # Start from the last query
+        if query not in temp_views.values():  # Ensure it's not just a temp view definition
+            return query
+    return None  # Return None if no final query is found
 
-2. **VPTL Dashboard**:  
-   The VPTL dashboard has been recently decommissioned by Visa, and there is no longer a requirement to refresh or maintain it. Therefore, there is no need for any handover or KT related to this dashboard.
+# Read the PySpark script
+with open("pyspark_script.py", "r") as file:
+    script_text = file.read()
 
-3. **Issuer Processor Pipeline**:  
-   For the issuer processor pipeline, I have migrated the process from Hive to PySpark, and I would like to outline the handover plan for this flow. Below is the plan for the new owner of this task:
+# Extract temp views and their SQL queries
+temp_views = extract_temp_views(script_text)
 
-   **Handover Plan for Issuer Processor Pipeline**:
+# Extract all queries to find the final one
+queries = extract_spark_queries(script_text)
 
-   - **PySpark Concepts Required**:  
-     The key PySpark concepts required to understand and work with this flow include:
-     - **spark.sql syntax**: Understanding how to write SQL queries in Spark for data manipulation.
-     - **create or replace temp view**: How to create temporary views of the data within the Spark session.
-     - **Writing Data to Table**: Methods to save the transformed data back to tables for persistence.
-     - **show command**: Using this command to preview and check data at various stages of processing.
-     - **withColumn and explode commands**: These are used for column-level transformations and for expanding arrays within data.
-     These concepts are central to the code structure and must be clearly understood to handle the issuer processor pipeline effectively.
+# Find the final query that loads data
+final_query = find_final_query(queries, temp_views)
 
-   - **Code Explanation**:  
-     The issuer processor pipeline consists of SQL-based flows with four primary scripts, the final output of which is a Tableau feed. The code has been fully migrated from Hive to PySpark, and I will walk through the logic of each script, explaining how the data flows from one stage to the next.
-
-   - **Cluster Optimization and Stability**:  
-     One important aspect of working with this flow is managing the cluster’s behavior during execution. The cluster can become unstable when handling complex jobs. If we have 100 transformations followed by a single action, the cluster often enters a "zombie state," where Spark loses track of the lineage and the process stalls. To avoid this, it is crucial to introduce **light actions** (such as `count()`, `cache()`, or `checkpoint()`) at strategic points within the flow to ensure that the lineage is maintained and the job continues running smoothly.
-
-     Additionally, there are recurring **LDAP and authentication issues** that can cause failures unrelated to the code itself. These are specific to the cluster environment, and the new owner must be aware of them. I will provide details on how to handle these issues, as they can disrupt the flow without any warning.
-
-   - **Monitoring and Logs**:  
-     While the code runs in Spark, it is important to monitor job progress via the Spark UI, especially given the cluster's instability. I will provide guidance on how to track job execution, interpret logs, and troubleshoot errors that may arise due to cluster or network issues.
-
-   - **Backup and Maintenance**:  
-     Lastly, I will outline the current backup strategy and any maintenance required to keep the pipeline running smoothly over time.
-
-This plan should ensure a smooth transition of responsibilities. I am happy to clarify any of the above points or provide further details as needed.
-
-Thank you,  
-[Your Name]
-
----
-
-This version includes the adjustments you requested and focuses on the cluster-related challenges rather than any code issues. Let me know if you'd like any further changes!
+if final_query:
+    transformed_query = replace_views_with_queries(final_query, temp_views)
+    print("Final Transformed Query for COUNT(*):")
+    print(transformed_query)
+else:
+    print("No valid final query found.")
