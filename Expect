@@ -1,65 +1,22 @@
-import re
+import csv
 
-def extract_spark_queries(script_text):
-    """
-    Extracts all spark.sql queries from the PySpark script while ignoring other operations.
-    """
-    pattern = r'spark\.sql"""(.*?)"""'  # Captures multi-line SQL queries
-    matches = re.findall(pattern, script_text, re.DOTALL)
-    return matches
+# Read both CSV files into sets
+with open('path/to/first_file.csv', 'r') as file1:
+    reader1 = csv.reader(file1)
+    file1_rows = set(tuple(row) for row in reader1)  # Convert each row to a tuple for set comparison
 
-def extract_temp_views(script_text):
-    """
-    Extracts temp views and their corresponding SQL queries.
-    """
-    pattern = r'spark\.sql"""(.*?)"""\s*\.createOrReplaceTempView"(\w+)"'
-    matches = re.findall(pattern, script_text, re.DOTALL)
-    return {view: sql for sql, view in matches}
+with open('path/to/second_file.csv', 'r') as file2:
+    reader2 = csv.reader(file2)
+    file2_rows = set(tuple(row) for row in reader2)
 
-def transform_query_to_count(query):
-    """
-    Converts a query into a COUNT(*) version.
-    """
-    query = query.strip().split("FROM", 1)  # Extract FROM clause
-    if len(query) > 1:
-        return f"SELECT COUNT(*) FROM {query[1]}"
-    return query[0]  # If no FROM, return as is
+# Find the difference: rows in file2 but not in file1
+difference = file2_rows - file1_rows
 
-def replace_views_with_queries(final_query, temp_view_queries):
-    """
-    Replaces temp view names with their respective transformed COUNT(*) queries.
-    """
-    for view, query in temp_view_queries.items():
-        count_query = transform_query_to_count(query)
-        final_query = re.sub(rf'\b{view}\b', f"({count_query})", final_query, flags=re.IGNORECASE)
-    return transform_query_to_count(final_query)  # Convert final query to COUNT(*)
+# Write the difference to a new CSV file
+with open('path/to/difference_file.csv', 'w', newline='') as diff_file:
+    writer = csv.writer(diff_file)
+    writer.writerows(difference)
 
-def find_final_query(queries, temp_views):
-    """
-    Identifies the final query that loads data by finding the last spark.sql()
-    that is NOT creating a temp view.
-    """
-    for query in reversed(queries):  # Start from the last query
-        if query not in temp_views.values():  # Ensure it's not just a temp view definition
-            return query
-    return None  # Return None if no final query is found
-
-# Read the PySpark script
-with open("pyspark_script.py", "r") as file:
-    script_text = file.read()
-
-# Extract temp views and their SQL queries
-temp_views = extract_temp_views(script_text)
-
-# Extract all queries to find the final one
-queries = extract_spark_queries(script_text)
-
-# Find the final query that loads data
-final_query = find_final_query(queries, temp_views)
-
-if final_query:
-    transformed_query = replace_views_with_queries(final_query, temp_views)
-    print("Final Transformed Query for COUNT(*):")
-    print(transformed_query)
-else:
-    print("No valid final query found.")
+# Show the result (optional)
+for row in difference:
+    print(row)
